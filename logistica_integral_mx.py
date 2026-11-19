@@ -1,7 +1,5 @@
 import streamlit as st
 import pandas as pd
-import folium
-from streamlit_folium import st_folium
 import streamlit_authenticator as stauth
 import os
 import json
@@ -77,6 +75,7 @@ FILE_COMBUSTIBLE = "registro_combustible.csv"
 FACTOR_CO2_DIESEL = 2.68  # kg de CO2 estimados por litro de diésel quemado
 UNIDADES_VAN = ["VAN-01", "VAN-02", "VAN-03"]
 CONDUCTORES = ["COND-01 (Carlos M.)", "COND-02 (Luis R.)", "COND-03 (Jorge H.)", "COND-04 (Diego S.)"]
+
 
 # --- INICIALIZACIÓN DE ARCHIVOS CSV ---
 def inicializar_archivos():
@@ -160,6 +159,67 @@ def cargar_usuarios():
     return default_credentials
 
 credentials = cargar_usuarios()
+
+
+def render_mapa_leaflet(puntos: list, altura: int = 440):
+    puntos_json = json.dumps(puntos)
+    lat_centro = puntos[0]["lat"] if puntos else 19.4326
+    lon_centro = puntos[0]["lon"] if puntos else -99.1332
+
+    html_mapa = f"""
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <meta charset="utf-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+        <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+        <style>
+            html, body, #map {{
+                height: 100%;
+                width: 100%;
+                margin: 0;
+                padding: 0;
+                background-color: #0E1117;
+                border-radius: 8px;
+            }}
+        </style>
+    </head>
+    <body>
+        <div id="map"></div>
+        <script>
+            var puntos = {puntos_json};
+            var map = L.map('map').setView([{lat_centro}, {lon_centro}], 11);
+
+            L.tileLayer('https://tile.openstreetmap.org/{{z}}/{{x}}/{{y}}.png', {{
+                maxZoom: 19,
+                attribution: '&copy; OpenStreetMap contributors'
+            }}).addTo(map);
+
+            var coordsRuta = [];
+            puntos.forEach(function(p, idx) {{
+                var latlng = [p.lat, p.lon];
+                coordsRuta.push(latlng);
+                L.marker(latlng)
+                    .addTo(map)
+                    .bindPopup("<b>" + (idx + 1) + ". " + p.nombre + "</b><br>" + p.desc);
+            }});
+
+            if (coordsRuta.length > 1) {{
+                coordsRuta.push(coordsRuta[0]);
+                var polyline = L.polyline(coordsRuta, {{
+                    color: '#007AFF',
+                    weight: 4,
+                    opacity: 0.9
+                }}).addTo(map);
+                map.fitBounds(polyline.getBounds(), {{ padding: [25, 25] }});
+            }}
+        </script>
+    </body>
+    </html>
+    """
+    st.components.v1.html(html_mapa, height=altura)
+
 
 # ==========================================
 # --- MÓDULOS DEL SISTEMA ---
@@ -398,23 +458,28 @@ def modulo_optimizacion_rutas():
 
     st.divider()
     st.markdown("### 🗺️ Visualización de Ruta de Distribución")
-    m = folium.Map(location=[19.4326, -99.1332], zoom_start=11, tiles="CartoDB dark_matter")
-    puntos = [
-        ("CEDIS Central", [19.4326, -99.1332], "Punto de salida"),
-        ("Zona Norte", [19.4900, -99.1400], "Parada 1 - Paquetería"),
-        ("Zona Poniente", [19.4200, -99.2100], "Parada 2 - Paquetería"),
-        ("Zona Sur", [19.3500, -99.1600], "Parada 3 - Paquetería"),
-    ]
-    for nombre, coord, desc in puntos:
-        folium.Marker(coord, popup=f"{nombre}: {desc}", tooltip=nombre).add_to(m)
 
-    folium.PolyLine(
-        locations=[p[1] for p in puntos] + [puntos[0][1]],
-        color="#007AFF",
-        weight=3,
-        tooltip="Circuito de Distribución Propuesto"
-    ).add_to(m)
-    st_folium(m, width=1000, height=420)
+    van_sel = st.selectbox("Selecciona unidad para visualizar su ruta:", UNIDADES_VAN, key="mapa_van_sel")
+
+    rutas_por_van = {
+        "VAN-01": [
+            {"nombre": "CEDIS Central", "lat": 19.4326, "lon": -99.1332, "desc": "Punto de salida"},
+            {"nombre": "Zona Norte", "lat": 19.4900, "lon": -99.1400, "desc": "Parada 1 - Paquetería"},
+            {"nombre": "Centro Histórico", "lat": 19.4360, "lon": -99.1310, "desc": "Parada 2 - Paquetería"},
+        ],
+        "VAN-02": [
+            {"nombre": "CEDIS Central", "lat": 19.4326, "lon": -99.1332, "desc": "Punto de salida"},
+            {"nombre": "Zona Poniente", "lat": 19.4200, "lon": -99.2100, "desc": "Parada 1 - Corredor Industrial"},
+            {"nombre": "Polanco / Reforma", "lat": 19.4330, "lon": -99.1900, "desc": "Parada 2 - Paquetería"},
+        ],
+        "VAN-03": [
+            {"nombre": "CEDIS Central", "lat": 19.4326, "lon": -99.1332, "desc": "Punto de salida"},
+            {"nombre": "Zona Sur", "lat": 19.3500, "lon": -99.1600, "desc": "Parada 1 - Residencial"},
+            {"nombre": "Coyoacán", "lat": 19.3467, "lon": -99.1618, "desc": "Parada 2 - Paquetería"},
+        ],
+    }
+
+    render_mapa_leaflet(rutas_por_van[van_sel], altura=440)
 
     if not df_cond.empty:
         st.divider()
