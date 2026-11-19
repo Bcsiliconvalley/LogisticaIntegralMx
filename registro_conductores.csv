@@ -1,0 +1,4 @@
+Fecha,Conductor,Camioneta,Km_Inicial,Km_Final,Km_Recorridos,Diesel_Usado_L,Paquetes_Entregados,Entregas_Fallidas,Tiempo_Recorrido_Hr,Incidencias
+2026-11-18,COND-01 (Carlos M.),VAN-01,45120.0,45245.0,125.0,18.5,42,3,6.5,Tráfico pesado en av. principal
+2026-11-18,COND-02 (Luis R.),VAN-02,38900.0,39040.0,140.0,22.0,38,5,7.2,Cliente ausente en 3 domicilios
+2026-11-18,COND-03 (Jorge H.),VAN-03,51200.0,51310.0,110.0,15.0,35,2,5.8,Sin incidencias
