@@ -1,4 +1,0 @@
-Fecha,Camioneta,Punto_Salida,Destinos,Distancia_Estimada_Km,Distancia_Real_Km,Num_Paradas,Tiempo_Estimado_Hr,Tiempo_Real_Hr,Observaciones
-2026-11-18,VAN-01,CEDIS Central,Zona Norte / Centro,110.0,125.0,28,5.5,6.5,Desvío por obra vial
-2026-11-18,VAN-02,CEDIS Central,Zona Poniente / Industrial,120.0,140.0,32,6.0,7.2,Ruta con retornos innecesarios
-2026-11-18,VAN-03,CEDIS Central,Zona Sur / Residencial,100.0,110.0,24,5.0,5.8,Buen rendimiento general

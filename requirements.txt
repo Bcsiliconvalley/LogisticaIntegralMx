@@ -1,0 +1,6 @@
+streamlit
+streamlit-authenticator>=0.4
+pandas
+sqlalchemy>=2.0
+pymysql
+cryptography
