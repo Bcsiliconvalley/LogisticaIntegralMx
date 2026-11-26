@@ -1,14 +1,118 @@
 import streamlit as st
 import pandas as pd
 import streamlit_authenticator as stauth
+from streamlit_authenticator.utilities import LoginError
 import os
 import json
 from datetime import date
+from urllib.parse import quote
+
+from db import (
+    consultar,
+    cargar_credenciales,
+    crear_usuario,
+    asegurar_usuarios_demo,
+    describir_conexion,
+    cookie_key,
+    id_usuario,
+    conductor_de_usuario,
+    lista_unidades,
+    lista_conductores,
+    paradas_de_unidad,
+    df_conductores,
+    df_rutas,
+    df_combustible,
+    guardar_registro_conductor,
+    guardar_ruta,
+    guardar_combustible,
+    parametro,
+    actualizar_parametro,
+)
+
+# ==========================================
+# --- ÍCONOS SVG (reemplazan a los emojis) ---
+# ==========================================
+ICONOS = {
+    "camion": '<path d="M14 18V6a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v11a1 1 0 0 0 1 1h2"/><path d="M15 18H9"/><path d="M19 18h2a1 1 0 0 0 1-1v-3.65a1 1 0 0 0-.22-.624l-3.48-4.35A1 1 0 0 0 17.52 8H14"/><circle cx="17" cy="18" r="2"/><circle cx="7" cy="18" r="2"/>',
+    "panel": '<path d="M3 3v18h18"/><path d="M18 17V9"/><path d="M13 17V5"/><path d="M8 17v-3"/>',
+    "portapapeles": '<rect width="8" height="4" x="8" y="2" rx="1" ry="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><path d="M12 11h4"/><path d="M12 16h4"/><path d="M8 11h.01"/><path d="M8 16h.01"/>',
+    "hoja": '<path d="M11 20A7 7 0 0 1 9.8 6.1C15.5 5 17 4.48 19 2c1 2 2 4.18 2 8 0 5.5-4.78 10-10 10Z"/><path d="M2 21c0-3 1.85-5.36 5.08-6C9.5 14.52 12 13 13 12"/>',
+    "config": '<path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/><circle cx="12" cy="12" r="3"/>',
+    "combustible": '<line x1="3" x2="15" y1="22" y2="22"/><line x1="4" x2="14" y1="9" y2="9"/><path d="M14 22V4a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v18"/><path d="M14 13h2a2 2 0 0 1 2 2v2a2 2 0 0 0 2 2a2 2 0 0 0 2-2V9.83a2 2 0 0 0-.59-1.42L18 5"/>',
+    "paquete": '<path d="m7.5 4.27 9 5.15"/><path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z"/><path d="m3.3 7 8.7 5 8.7-5"/><path d="M12 22V12"/>',
+    "ruta": '<circle cx="6" cy="19" r="3"/><path d="M9 19h8.5a3.5 3.5 0 0 0 0-7h-11a3.5 3.5 0 0 1 0-7H15"/><circle cx="18" cy="5" r="3"/>',
+    "usuario": '<path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>',
+    "buscar": '<circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/>',
+    "mapa": '<path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z"/><circle cx="12" cy="10" r="3"/>',
+    "candado": '<rect width="18" height="11" x="3" y="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/>',
+    "usuario_mas": '<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M19 8v6"/><path d="M22 11h-6"/>',
+}
+
+
+def svg_html(nombre, size=20, color="currentColor"):
+    """SVG en línea para usar dentro de HTML/markdown."""
+    return (
+        f'<svg xmlns="http://www.w3.org/2000/svg" width="{size}" height="{size}" '
+        f'viewBox="0 0 24 24" fill="none" stroke="{color}" stroke-width="2" '
+        f'stroke-linecap="round" stroke-linejoin="round" '
+        f'style="vertical-align:-0.15em;flex-shrink:0">{ICONOS[nombre]}</svg>'
+    )
+
+
+def encabezado(nombre, texto, nivel=3):
+    """Encabezado con ícono SVG (reemplaza st.title / st.subheader / '### ' con emoji)."""
+    tamanos = {1: 36, 2: 30, 3: 24, 4: 20}
+    st.markdown(
+        f'<h{nivel} style="display:flex;align-items:center;gap:0.5rem;margin:0;padding:0.5rem 0">'
+        f'{svg_html(nombre, tamanos.get(nivel, 20))}<span>{texto}</span></h{nivel}>',
+        unsafe_allow_html=True,
+    )
+
+
+def _svg_data_uri(nombre):
+    s = (
+        '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" '
+        'stroke="black" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">'
+        f'{ICONOS[nombre]}</svg>'
+    )
+    return "data:image/svg+xml;utf8," + quote(s, safe="")
+
+
+def inyectar_iconos(selector, nombres):
+    """
+    Pone un ícono SVG (como máscara, hereda el color del texto) antes de cada elemento
+    que coincida con `selector`, en orden. Sirve para tabs y radios, cuyas etiquetas no aceptan HTML.
+    """
+    reglas = (
+        f"{selector}::before {{ content: ''; display: inline-block; flex-shrink: 0; "
+        "width: 1.15em; height: 1.15em; margin-right: 10px; align-self: center; "
+        "background-color: currentColor; "
+        "-webkit-mask-repeat: no-repeat; mask-repeat: no-repeat; "
+        "-webkit-mask-position: center; mask-position: center; "
+        "-webkit-mask-size: contain; mask-size: contain; }\n"
+    )
+    for i, nombre in enumerate(nombres, start=1):
+        uri = _svg_data_uri(nombre)
+        reglas += (
+            f"{selector}:nth-of-type({i})::before "
+            f'{{ -webkit-mask-image: url("{uri}"); mask-image: url("{uri}"); }}\n'
+        )
+    st.markdown(f"<style>{reglas}</style>", unsafe_allow_html=True)
+
+
+SELECTOR_TABS = 'div[role="tablist"] > button[data-baseweb="tab"]'
+SELECTOR_MENU = '[data-testid="stSidebar"] div[role="radiogroup"] > label'
+
+# --- Favicon SVG (page_icon acepta una ruta a archivo) ---
+FAVICON = "favicon_logistica.svg"
+if not os.path.exists(FAVICON):
+    with open(FAVICON, "w", encoding="utf-8") as f:
+        f.write(svg_html("camion", 64, "#007AFF"))
 
 # --- CONFIGURACIÓN DE LA PÁGINA ---
 st.set_page_config(
     page_title="Logística Integral MX - Huella y Rutas",
-    page_icon="🚚",
+    page_icon=FAVICON,
     layout="wide"
 )
 
@@ -64,107 +168,29 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# --- CONSTANTES Y ARCHIVOS DE DATOS ---
 LOGO_FILENAME = "LogisticaIntegralLogo.jpeg"
-USERS_FILE = "users_logistica.json"
 
-FILE_CONDUCTORES = "registro_conductores.csv"
-FILE_RUTAS = "registro_rutas.csv"
-FILE_COMBUSTIBLE = "registro_combustible.csv"
-
-FACTOR_CO2_DIESEL = 2.68  # kg de CO2 estimados por litro de diésel quemado
-UNIDADES_VAN = ["VAN-01", "VAN-02", "VAN-03"]
-CONDUCTORES = ["COND-01 (Carlos M.)", "COND-02 (Luis R.)", "COND-03 (Jorge H.)", "COND-04 (Diego S.)"]
-
-
-# --- INICIALIZACIÓN DE ARCHIVOS CSV ---
-def inicializar_archivos():
-    if not os.path.exists(FILE_CONDUCTORES):
-        pd.DataFrame({
-            "Fecha": ["2026-11-18", "2026-11-18", "2026-11-18"],
-            "Conductor": ["COND-01 (Carlos M.)", "COND-02 (Luis R.)", "COND-03 (Jorge H.)"],
-            "Camioneta": ["VAN-01", "VAN-02", "VAN-03"],
-            "Km_Inicial": [45120.0, 38900.0, 51200.0],
-            "Km_Final": [45245.0, 39040.0, 51310.0],
-            "Km_Recorridos": [125.0, 140.0, 110.0],
-            "Diesel_Usado_L": [18.5, 22.0, 15.0],
-            "Paquetes_Entregados": [42, 38, 35],
-            "Entregas_Fallidas": [3, 5, 2],
-            "Tiempo_Recorrido_Hr": [6.5, 7.2, 5.8],
-            "Incidencias": ["Tráfico pesado en av. principal", "Cliente ausente en 3 domicilios", "Sin incidencias"]
-        }).to_csv(FILE_CONDUCTORES, index=False)
-
-    if not os.path.exists(FILE_RUTAS):
-        pd.DataFrame({
-            "Fecha": ["2026-11-18", "2026-11-18", "2026-11-18"],
-            "Camioneta": ["VAN-01", "VAN-02", "VAN-03"],
-            "Punto_Salida": ["CEDIS Central", "CEDIS Central", "CEDIS Central"],
-            "Destinos": ["Zona Norte / Centro", "Zona Poniente / Industrial", "Zona Sur / Residencial"],
-            "Distancia_Estimada_Km": [110.0, 120.0, 100.0],
-            "Distancia_Real_Km": [125.0, 140.0, 110.0],
-            "Num_Paradas": [28, 32, 24],
-            "Tiempo_Estimado_Hr": [5.5, 6.0, 5.0],
-            "Tiempo_Real_Hr": [6.5, 7.2, 5.8],
-            "Observaciones": ["Desvío por obra vial", "Ruta con retornos innecesarios", "Buen rendimiento general"]
-        }).to_csv(FILE_RUTAS, index=False)
-
-    if not os.path.exists(FILE_COMBUSTIBLE):
-        pd.DataFrame({
-            "Fecha": ["2026-11-18", "2026-11-18"],
-            "Camioneta": ["VAN-01", "VAN-02"],
-            "Diesel_Cargado_L": [45.0, 50.0],
-            "Costo_Combustible": [1080.0, 1200.0],
-            "Kilometraje_Unidad": [45245.0, 39040.0],
-            "Mantenimiento": ["Revisión de presión de neumáticos", "Cambio de filtros de aire y diésel"],
-            "Observaciones": ["Carga completa al cierre de turno", "Listo para jornada matutina"]
-        }).to_csv(FILE_COMBUSTIBLE, index=False)
-
-inicializar_archivos()
-
-def cargar_csv(ruta):
-    return pd.read_csv(ruta)
-
-def guardar_csv(df, ruta):
-    df.to_csv(ruta, index=False)
-
-# --- MANEJO DE USUARIOS ---
-def cargar_usuarios():
-    if os.path.exists(USERS_FILE):
-        with open(USERS_FILE, "r") as f:
-            return json.load(f)
-    default_credentials = {
-        "usernames": {
-            "admin": {
-                "name": "Dirección Operativa",
-                "password": stauth.Hasher.hash("123"),
-                "email": "admin@logisticaintegralmx.com",
-                "role": "Administrador"
-            },
-            "admin_staff": {
-                "name": "Personal Administrativo",
-                "password": stauth.Hasher.hash("456"),
-                "email": "rutas@logisticaintegralmx.com",
-                "role": "Administrativo"
-            },
-            "conductor1": {
-                "name": "Carlos M. (COND-01)",
-                "password": stauth.Hasher.hash("789"),
-                "email": "cond1@logisticaintegralmx.com",
-                "role": "Conductor"
-            }
-        }
-    }
-    with open(USERS_FILE, "w") as f:
-        json.dump(default_credentials, f)
-    return default_credentials
-
-credentials = cargar_usuarios()
+# --- USUARIOS DESDE MYSQL ---
+try:
+    asegurar_usuarios_demo()
+    credentials = cargar_credenciales()
+except Exception as e:
+    st.error(
+        "No se pudo conectar con la base de datos. Revisa que MySQL esté encendido, que hayas importado "
+        "database/esquema_logistica.sql y los datos de .streamlit/secrets.toml."
+    )
+    st.code(str(e))
+    try:
+        st.caption(describir_conexion())
+    except Exception as e2:
+        st.caption(f"No se pudo leer secrets.toml: {e2}")
+    st.stop()
 
 
 def render_mapa_leaflet(puntos: list, altura: int = 440):
     puntos_json = json.dumps(puntos)
-    lat_centro = puntos[0]["lat"] if puntos else 19.4326
-    lon_centro = puntos[0]["lon"] if puntos else -99.1332
+    lat_centro = puntos[0]["lat"] if puntos else 32.6278
+    lon_centro = puntos[0]["lon"] if puntos else -115.4545
 
     html_mapa = f"""
     <!DOCTYPE html>
@@ -226,51 +252,60 @@ def render_mapa_leaflet(puntos: list, altura: int = 440):
 # ==========================================
 
 def modulo_panel_general():
-    st.subheader("📊 Panel General - Logística Integral MX")
+    encabezado("panel", "Panel General - Logística Integral MX")
     st.caption("Monitoreo operativo de flota (3 VANs), consumo de diésel y huella de carbono.")
 
-    df_cond = cargar_csv(FILE_CONDUCTORES)
-    df_comb = cargar_csv(FILE_COMBUSTIBLE)
-    df_rutas = cargar_csv(FILE_RUTAS)
+    df_cond = df_conductores()
+    df_comb = df_combustible()
+    df_ru = df_rutas()
+    factor = parametro("factor_co2_diesel", 2.68)
 
-    total_litros = df_cond["Diesel_Usado_L"].sum() if not df_cond.empty else 0.0
-    total_co2 = total_litros * FACTOR_CO2_DIESEL
-    total_gasto = df_comb["Costo_Combustible"].sum() if not df_comb.empty else 0.0
-    total_entregas = df_cond["Paquetes_Entregados"].sum() if not df_cond.empty else 0
-    total_fallidas = df_cond["Entregas_Fallidas"].sum() if not df_cond.empty else 0
+    total_litros = float(df_cond["Diesel_Usado_L"].sum()) if not df_cond.empty else 0.0
+    total_co2 = total_litros * factor
+    total_gasto = float(df_comb["Costo_Combustible"].sum()) if not df_comb.empty else 0.0
+    total_entregas = int(df_cond["Paquetes_Entregados"].sum()) if not df_cond.empty else 0
+    total_fallidas = int(df_cond["Entregas_Fallidas"].sum()) if not df_cond.empty else 0
 
     col1, col2, col3, col4 = st.columns(4)
     col1.metric("Diésel Consumido", f"{total_litros:,.1f} L")
-    col2.metric("Huella CO₂ Estimada", f"{total_co2:,.1f} kg CO₂", delta="-8.5% meta", delta_color="normal")
+    col2.metric("Huella CO₂ Estimada", f"{total_co2:,.1f} kg CO₂")
     col3.metric("Gasto en Diésel", f"${total_gasto:,.2f} MXN")
-    col4.metric("Paquetes Entregados", f"{int(total_entregas)}", f"{int(total_fallidas)} fallidas")
+    col4.metric("Paquetes Entregados", f"{total_entregas}", f"{total_fallidas} fallidas", delta_color="inverse")
 
     st.divider()
 
     c_izq, c_der = st.columns(2)
     with c_izq:
-        st.markdown("### ⛽ Emisiones de CO₂ por Unidad (kg)")
+        encabezado("combustible", "Emisiones de CO₂ por Unidad (kg)", nivel=4)
         if not df_cond.empty:
-            co2_van = df_cond.groupby("Camioneta")["Diesel_Usado_L"].sum() * FACTOR_CO2_DIESEL
+            co2_van = df_cond.groupby("Camioneta")["Diesel_Usado_L"].sum() * factor
             st.bar_chart(co2_van)
     with c_der:
-        st.markdown("### 📦 Entregas vs. Fallidas por Conductor")
+        encabezado("paquete", "Entregas vs. Fallidas por Conductor", nivel=4)
         if not df_cond.empty:
             ent_cond = df_cond.groupby("Conductor")[["Paquetes_Entregados", "Entregas_Fallidas"]].sum()
             st.bar_chart(ent_cond)
 
     st.divider()
-    st.markdown("### 🛣️ Desviación de Rutas (Estimado vs. Real)")
-    if not df_rutas.empty:
-        df_vista = df_rutas.copy()
+    encabezado("ruta", "Desviación de Rutas (Estimado vs. Real)", nivel=4)
+    if not df_ru.empty:
+        df_vista = df_ru.copy()
         df_vista["Desviacion_Km"] = df_vista["Distancia_Real_Km"] - df_vista["Distancia_Estimada_Km"]
         st.dataframe(df_vista, use_container_width=True)
+    else:
+        st.info("Todavía no hay rutas registradas.")
 
 
-def modulo_captura_formatos():
-    st.subheader("📝 Captura de Formatos Operativos")
+def modulo_captura_formatos(username, user_role):
+    encabezado("portapapeles", "Captura de Formatos Operativos")
     st.write("Registra la información diaria para alimentar el cálculo de rutas, costos y emisiones.")
 
+    unidades = lista_unidades()
+    ids_unidad = dict(zip(unidades["codigo"], unidades["id_unidad"]))
+    opciones_van = list(unidades["codigo"])
+    id_usr = id_usuario(username)
+
+    inyectar_iconos(SELECTOR_TABS, ["usuario", "ruta", "combustible"])
     tab1, tab2, tab3 = st.tabs([
         "Formato 1: Registro Diario del Conductor",
         "Formato 2: Registro de Rutas de Entrega",
@@ -280,11 +315,16 @@ def modulo_captura_formatos():
     # --- FORMATO 1: CONDUCTOR ---
     with tab1:
         st.markdown("#### Responsable: Conductor de la camioneta")
+        conductores = lista_conductores()
+        ids_conductor = dict(zip(conductores["etiqueta"], conductores["id_conductor"]))
+        propio = conductor_de_usuario(username) if user_role == "Conductor" else None
+        opciones_cond = [propio["etiqueta"]] if propio is not None else list(conductores["etiqueta"])
+
         with st.form("form_f1", clear_on_submit=True):
             c1, c2, c3 = st.columns(3)
             fecha_f1 = c1.date_input("Fecha", value=date.today(), key="f1_fecha")
-            conductor_f1 = c2.selectbox("Nombre o clave del conductor", CONDUCTORES, key="f1_cond")
-            van_f1 = c3.selectbox("Número de camioneta", UNIDADES_VAN, key="f1_van")
+            conductor_f1 = c2.selectbox("Nombre o clave del conductor", opciones_cond, key="f1_cond")
+            van_f1 = c3.selectbox("Número de camioneta", opciones_van, key="f1_van")
 
             c4, c5, c6 = st.columns(3)
             km_ini = c4.number_input("Kilometraje inicial (km)", min_value=0.0, step=1.0, value=45000.0)
@@ -303,22 +343,10 @@ def modulo_captura_formatos():
                 if km_fin < km_ini:
                     st.error("El kilometraje final no puede ser menor al kilometraje inicial.")
                 else:
-                    df = cargar_csv(FILE_CONDUCTORES)
-                    nuevo = pd.DataFrame([{
-                        "Fecha": str(fecha_f1),
-                        "Conductor": conductor_f1,
-                        "Camioneta": van_f1,
-                        "Km_Inicial": km_ini,
-                        "Km_Final": km_fin,
-                        "Km_Recorridos": round(km_fin - km_ini, 2),
-                        "Diesel_Usado_L": diesel_f1,
-                        "Paquetes_Entregados": entregados,
-                        "Entregas_Fallidas": fallidas,
-                        "Tiempo_Recorrido_Hr": tiempo_f1,
-                        "Incidencias": incidencias_f1.strip() or "Sin incidencias"
-                    }])
-                    df = pd.concat([df, nuevo], ignore_index=True)
-                    guardar_csv(df, FILE_CONDUCTORES)
+                    guardar_registro_conductor(
+                        fecha_f1, int(ids_conductor[conductor_f1]), int(ids_unidad[van_f1]),
+                        km_ini, km_fin, diesel_f1, int(entregados), int(fallidas), tiempo_f1,
+                        incidencias_f1.strip() or "Sin incidencias", id_usr)
                     st.success("Formato 1 guardado correctamente.")
 
     # --- FORMATO 2: RUTAS ---
@@ -327,7 +355,7 @@ def modulo_captura_formatos():
         with st.form("form_f2", clear_on_submit=True):
             c1, c2 = st.columns(2)
             fecha_f2 = c1.date_input("Fecha", value=date.today(), key="f2_fecha")
-            van_f2 = c2.selectbox("Número de camioneta", UNIDADES_VAN, key="f2_van")
+            van_f2 = c2.selectbox("Número de camioneta", opciones_van, key="f2_van")
 
             c3, c4 = st.columns(2)
             salida_f2 = c3.text_input("Punto de salida", value="CEDIS Central")
@@ -346,21 +374,10 @@ def modulo_captura_formatos():
             submitted_f2 = st.form_submit_button("Guardar Formato 2")
 
             if submitted_f2:
-                df = cargar_csv(FILE_RUTAS)
-                nuevo = pd.DataFrame([{
-                    "Fecha": str(fecha_f2),
-                    "Camioneta": van_f2,
-                    "Punto_Salida": salida_f2.strip(),
-                    "Destinos": destinos_f2.strip() or "No especificados",
-                    "Distancia_Estimada_Km": dist_est,
-                    "Distancia_Real_Km": dist_real,
-                    "Num_Paradas": paradas,
-                    "Tiempo_Estimado_Hr": tiempo_est,
-                    "Tiempo_Real_Hr": tiempo_real,
-                    "Observaciones": obs_f2.strip() or "Sin observaciones"
-                }])
-                df = pd.concat([df, nuevo], ignore_index=True)
-                guardar_csv(df, FILE_RUTAS)
+                guardar_ruta(
+                    fecha_f2, int(ids_unidad[van_f2]), salida_f2.strip() or "CEDIS Central",
+                    destinos_f2.strip() or "No especificados", dist_est, dist_real, int(paradas),
+                    tiempo_est, tiempo_real, obs_f2.strip() or "Sin observaciones", id_usr)
                 st.success("Formato 2 guardado correctamente.")
 
     # --- FORMATO 3: COMBUSTIBLE Y MANTENIMIENTO ---
@@ -369,7 +386,7 @@ def modulo_captura_formatos():
         with st.form("form_f3", clear_on_submit=True):
             c1, c2, c3 = st.columns(3)
             fecha_f3 = c1.date_input("Fecha", value=date.today(), key="f3_fecha")
-            van_f3 = c2.selectbox("Número de camioneta", UNIDADES_VAN, key="f3_van")
+            van_f3 = c2.selectbox("Número de camioneta", opciones_van, key="f3_van")
             km_uni = c3.number_input("Kilometraje de la unidad (km)", min_value=0.0, step=1.0, value=45120.0)
 
             c4, c5 = st.columns(2)
@@ -381,38 +398,31 @@ def modulo_captura_formatos():
             submitted_f3 = st.form_submit_button("Guardar Formato 3")
 
             if submitted_f3:
-                df = cargar_csv(FILE_COMBUSTIBLE)
-                nuevo = pd.DataFrame([{
-                    "Fecha": str(fecha_f3),
-                    "Camioneta": van_f3,
-                    "Diesel_Cargado_L": litros_cargados,
-                    "Costo_Combustible": costo_comb,
-                    "Kilometraje_Unidad": km_uni,
-                    "Mantenimiento": mant_f3.strip() or "Ninguno",
-                    "Observaciones": obs_f3.strip() or "Sin observaciones"
-                }])
-                df = pd.concat([df, nuevo], ignore_index=True)
-                guardar_csv(df, FILE_COMBUSTIBLE)
+                guardar_combustible(
+                    fecha_f3, int(ids_unidad[van_f3]), litros_cargados, costo_comb, km_uni,
+                    mant_f3.strip() or "Ninguno", obs_f3.strip() or "Sin observaciones", id_usr)
                 st.success("Formato 3 guardado correctamente.")
 
 
 def modulo_co2_y_costos():
-    st.subheader("🌿 Cálculo de Huella de Carbono y Control de Combustible")
-    df_cond = cargar_csv(FILE_CONDUCTORES)
-    df_comb = cargar_csv(FILE_COMBUSTIBLE)
+    encabezado("hoja", "Cálculo de Huella de Carbono y Control de Combustible")
+    df_cond = df_conductores()
+    df_comb = df_combustible()
+    factor = parametro("factor_co2_diesel", 2.68)
+    precio_param = parametro("precio_litro_diesel", 26.99)
 
     c1, c2 = st.columns(2)
     with c1:
-        st.markdown("### Simulador de Emisiones por Jornada")
+        encabezado("combustible", "Simulador de Emisiones por Jornada", nivel=4)
         litros_sim = st.slider("Litros de diésel consumidos:", 1.0, 120.0, 25.0, step=0.5)
-        precio_litro = st.number_input("Precio promedio por litro de diésel ($):", min_value=1.0, value=24.0)
-        co2_sim = litros_sim * FACTOR_CO2_DIESEL
+        precio_litro = st.number_input("Precio promedio por litro de diésel ($):", min_value=1.0, value=precio_param)
+        co2_sim = litros_sim * factor
         costo_sim = litros_sim * precio_litro
         st.metric("Emisión Estimada", f"{co2_sim:.2f} kg CO₂")
         st.metric("Costo Estimado", f"${costo_sim:,.2f}")
 
     with c2:
-        st.markdown("### Rendimiento Histórico por Camioneta")
+        encabezado("camion", "Rendimiento Histórico por Camioneta", nivel=4)
         if not df_cond.empty:
             resumen = df_cond.groupby("Camioneta").agg(
                 Km_Totales=("Km_Recorridos", "sum"),
@@ -420,33 +430,39 @@ def modulo_co2_y_costos():
                 Entregas=("Paquetes_Entregados", "sum"),
                 Fallidas=("Entregas_Fallidas", "sum")
             ).reset_index()
-            resumen["Rendimiento_Km_L"] = (resumen["Km_Totales"] / resumen["Diesel_L"].replace(0, pd.NA)).round(2)
-            resumen["CO2_kg"] = (resumen["Diesel_L"] * FACTOR_CO2_DIESEL).round(2)
+            resumen["Rendimiento_Km_L"] = (
+                resumen["Km_Totales"] / resumen["Diesel_L"].where(resumen["Diesel_L"] != 0)
+            ).round(2)
+            resumen["CO2_kg"] = (resumen["Diesel_L"] * factor).round(2)
             st.dataframe(resumen, use_container_width=True)
+        else:
+            st.info("Todavía no hay registros de conductores.")
 
     st.divider()
-    st.markdown("### 📋 Bitácora de Combustible y Mantenimiento (Formato 3)")
+    encabezado("portapapeles", "Bitácora de Combustible y Mantenimiento (Formato 3)", nivel=4)
     st.dataframe(df_comb, use_container_width=True)
 
 
 def modulo_optimizacion_rutas():
-    st.subheader("🚚 Optimización de Rutas y Oportunidades de Mejora")
-    df_rutas = cargar_csv(FILE_RUTAS)
-    df_cond = cargar_csv(FILE_CONDUCTORES)
+    encabezado("camion", "Optimización de Rutas y Oportunidades de Mejora")
+    df_ru = df_rutas()
+    df_cond = df_conductores()
+    umbral = parametro("umbral_km_extra", 5.0)
+    co2_km = parametro("co2_kg_por_km_extra", 0.22)
 
-    if not df_rutas.empty:
-        df_analisis = df_rutas.copy()
+    if not df_ru.empty:
+        df_analisis = df_ru.copy()
         df_analisis["Km_Extra"] = df_analisis["Distancia_Real_Km"] - df_analisis["Distancia_Estimada_Km"]
-        df_analisis["CO2_Extra_Est_kg"] = (df_analisis["Km_Extra"].clip(lower=0) * 0.22).round(2)
+        df_analisis["CO2_Extra_Est_kg"] = (df_analisis["Km_Extra"].clip(lower=0) * co2_km).round(2)
 
-        st.markdown("### 🔍 Detección de Recorridos Excesivos")
+        encabezado("buscar", "Detección de Recorridos Excesivos", nivel=4)
         st.dataframe(df_analisis[[
             "Fecha", "Camioneta", "Punto_Salida", "Destinos",
             "Distancia_Estimada_Km", "Distancia_Real_Km", "Km_Extra",
             "Num_Paradas", "CO2_Extra_Est_kg", "Observaciones"
         ]], use_container_width=True)
 
-        excesos = df_analisis[df_analisis["Km_Extra"] > 5]
+        excesos = df_analisis[df_analisis["Km_Extra"] > umbral]
         if not excesos.empty:
             for _, fila in excesos.iterrows():
                 st.warning(
@@ -455,43 +471,45 @@ def modulo_optimizacion_rutas():
                 )
         else:
             st.success("Todas las rutas están dentro del margen esperado de kilometraje.")
+    else:
+        st.info("Todavía no hay rutas registradas.")
 
     st.divider()
-    st.markdown("### 🗺️ Visualización de Ruta de Distribución")
+    encabezado("mapa", "Visualización de Ruta de Distribución", nivel=4)
 
-    van_sel = st.selectbox("Selecciona unidad para visualizar su ruta:", UNIDADES_VAN, key="mapa_van_sel")
-
-    rutas_por_van = {
-        "VAN-01": [
-            {"nombre": "CEDIS Central", "lat": 19.4326, "lon": -99.1332, "desc": "Punto de salida"},
-            {"nombre": "Zona Norte", "lat": 19.4900, "lon": -99.1400, "desc": "Parada 1 - Paquetería"},
-            {"nombre": "Centro Histórico", "lat": 19.4360, "lon": -99.1310, "desc": "Parada 2 - Paquetería"},
-        ],
-        "VAN-02": [
-            {"nombre": "CEDIS Central", "lat": 19.4326, "lon": -99.1332, "desc": "Punto de salida"},
-            {"nombre": "Zona Poniente", "lat": 19.4200, "lon": -99.2100, "desc": "Parada 1 - Corredor Industrial"},
-            {"nombre": "Polanco / Reforma", "lat": 19.4330, "lon": -99.1900, "desc": "Parada 2 - Paquetería"},
-        ],
-        "VAN-03": [
-            {"nombre": "CEDIS Central", "lat": 19.4326, "lon": -99.1332, "desc": "Punto de salida"},
-            {"nombre": "Zona Sur", "lat": 19.3500, "lon": -99.1600, "desc": "Parada 1 - Residencial"},
-            {"nombre": "Coyoacán", "lat": 19.3467, "lon": -99.1618, "desc": "Parada 2 - Paquetería"},
-        ],
-    }
-
-    render_mapa_leaflet(rutas_por_van[van_sel], altura=440)
+    codigos = list(lista_unidades()["codigo"])
+    van_sel = st.selectbox("Selecciona unidad para visualizar su ruta:", codigos, key="mapa_van_sel")
+    puntos = paradas_de_unidad(van_sel)
+    if puntos:
+        render_mapa_leaflet(puntos, altura=440)
+    else:
+        st.info("Esta unidad todavía no tiene paradas registradas para el mapa.")
 
     if not df_cond.empty:
         st.divider()
-        st.markdown("### 📋 Bitácora de Conductores (Formato 1)")
+        encabezado("portapapeles", "Bitácora de Conductores (Formato 1)", nivel=4)
         st.dataframe(df_cond, use_container_width=True)
 
 
-def modulo_configuracion():
-    st.subheader("⚙️ Configuración del Sistema")
+def modulo_configuracion(username):
+    encabezado("config", "Configuración del Sistema")
     st.text_input("Empresa", value="Logística Integral MX", disabled=True)
     st.text_input("Flota registrada", value="3 Camionetas tipo VAN | 4 Conductores | 2 Administrativos", disabled=True)
-    st.number_input("Factor de emisión de diésel (kg CO₂ / L)", value=FACTOR_CO2_DIESEL, disabled=True)
+
+    encabezado("hoja", "Parámetros de cálculo", nivel=4)
+    factor = parametro("factor_co2_diesel", 2.68)
+    precio = parametro("precio_litro_diesel", 26.99)
+    nuevo_factor = st.number_input("Factor de emisión de diésel (kg CO₂ / L)", min_value=0.0,
+                                   value=factor, step=0.01, format="%.4f")
+    nuevo_precio = st.number_input("Precio del diésel ($ / L)", min_value=0.0,
+                                   value=precio, step=0.01, format="%.2f")
+    if st.button("Guardar parámetros"):
+        uid = id_usuario(username)
+        actualizar_parametro("factor_co2_diesel", float(nuevo_factor), uid)
+        actualizar_parametro("precio_litro_diesel", float(nuevo_precio), uid)
+        st.success("Parámetros guardados.")
+
+    st.divider()
     st.toggle("Alertas por desviación de ruta > 10 km", value=True)
     st.toggle("Alertas por entregas fallidas elevadas", value=True)
     if st.button("Guardar Preferencias"):
@@ -504,9 +522,20 @@ def modulo_configuracion():
 authenticator = stauth.Authenticate(
     credentials,
     "logistica_integral_mx_dash",
-    "logistica_auth_cookie",
+    cookie_key(),
     cookie_expiry_days=30
 )
+
+# Una cookie de sesión de un usuario que ya no existe se ignora (borrarla desde aquí
+# provoca recargas en bucle).
+_get_cookie_original = authenticator.cookie_controller.get_cookie
+def _get_cookie_valida():
+    token = _get_cookie_original()
+    if token and token.get("username") not in credentials["usernames"]:
+        return None
+    return token
+authenticator.cookie_controller.get_cookie = _get_cookie_valida
+
 authentication_status = st.session_state.get("authentication_status")
 
 if authentication_status is None or authentication_status is False:
@@ -521,7 +550,7 @@ if authentication_status is None or authentication_status is False:
             if os.path.exists(LOGO_FILENAME):
                 st.image(LOGO_FILENAME, use_container_width=True)
             else:
-                st.info(f"💡 Coloca tu logo aquí con el nombre: {LOGO_FILENAME}")
+                st.info(f"Coloca tu logo aquí con el nombre: {LOGO_FILENAME}")
 
         st.markdown("<h1 style='text-align: center; color: #FFFFFF;'>Logística Integral MX</h1>", unsafe_allow_html=True)
         st.markdown("<h3 style='text-align: center; color: #8B949E;'>Control de Rutas y Huella de Carbono</h3>", unsafe_allow_html=True)
@@ -529,43 +558,51 @@ if authentication_status is None or authentication_status is False:
 
     with col_der:
         st.markdown("### Acceso al Sistema")
-        tab_login, tab_registro = st.tabs(["🔐 Ingresar", "📝 Registrarse"])
+        inyectar_iconos(SELECTOR_TABS, ["candado", "usuario_mas"])
+        tab_login, tab_registro = st.tabs(["Ingresar", "Registrarse"])
 
         with tab_login:
-            authenticator.login(location="main")
+            try:
+                authenticator.login(location="main")
+            except LoginError as e:
+                st.warning(f"No se pudo iniciar sesión: {e}")
             if authentication_status is False:
                 st.error("Usuario o contraseña incorrectos")
             elif authentication_status is None:
                 st.warning("Ingresa tus credenciales")
 
         with tab_registro:
+            # El registro público solo crea cuentas de conductor; los roles administrativo y
+            # administrador se asignan directamente en la tabla usuarios.
             with st.form("registro_form"):
                 nuevo_nombre = st.text_input("Nombre Completo:")
                 nuevo_usuario = st.text_input("Usuario:")
                 nueva_password = st.text_input("Contraseña:", type="password")
-                nuevo_rol = st.selectbox("Rol:", ["Conductor", "Administrativo", "Administrador"])
                 btn_registro = st.form_submit_button("Crear Cuenta")
 
                 if btn_registro:
-                    if not nuevo_nombre or not nuevo_usuario or not nueva_password:
+                    usuario = nuevo_usuario.strip().lower()
+                    if not nuevo_nombre or not usuario or not nueva_password:
                         st.error("Llena todos los campos.")
-                    elif nuevo_usuario in credentials["usernames"]:
+                    elif usuario in credentials["usernames"]:
                         st.error("Usuario ya en uso.")
                     else:
-                        credentials["usernames"][nuevo_usuario] = {
-                            "name": nuevo_nombre,
-                            "password": stauth.Hasher.hash(nueva_password),
-                            "email": "",
-                            "role": nuevo_rol
-                        }
-                        with open(USERS_FILE, "w") as f:
-                            json.dump(credentials, f)
-                        st.success(f"¡Cuenta creada para {nuevo_nombre}!")
+                        crear_usuario(usuario, nuevo_nombre, nueva_password, "conductor")
+                        st.success(f"¡Cuenta creada para {nuevo_nombre}! Ya puedes ingresar.")
 
 elif authentication_status:
     name = st.session_state.get("name")
     username = st.session_state.get("username")
     user_role = credentials["usernames"].get(username, {}).get("role", "Administrativo")
+
+    # Cada opción es (texto, ícono SVG)
+    opciones_menu = [("Panel General", "panel"), ("Captura de Formatos", "portapapeles")]
+    if user_role != "Conductor":
+        opciones_menu.append(("CO₂ y Combustible", "hoja"))
+    opciones_menu.append(("Rutas y Mejoras", "camion"))
+    if user_role == "Administrador":
+        opciones_menu.append(("Configuración", "config"))
+    etiquetas_menu = [texto for texto, _ in opciones_menu]
 
     with st.sidebar:
         if os.path.exists(LOGO_FILENAME):
@@ -577,32 +614,24 @@ elif authentication_status:
         st.write(f"Bienvenido, **{name}**")
         st.write(f"Rol: **{user_role}**")
         st.divider()
-
-        opciones_menu = ["📊 Panel General", "📝 Captura de Formatos"]
-
-        if user_role != "Conductor":
-            opciones_menu.append("🌿 CO₂ y Combustible")
-
-        opciones_menu.append("🚚 Rutas y Mejoras")
-
-        if user_role == "Administrador":
-            opciones_menu.append("⚙️ Configuración")
-
-        opcion = st.radio("Selecciona un módulo:", opciones_menu, label_visibility="collapsed")
+        opcion = st.radio("Selecciona un módulo:", etiquetas_menu, label_visibility="collapsed")
         st.divider()
         authenticator.logout("Cerrar Sesión", location="sidebar")
 
-    st.title("🚚 Logística Integral MX")
+    # Íconos del menú lateral (en el mismo orden que las opciones)
+    inyectar_iconos(SELECTOR_MENU, [icono for _, icono in opciones_menu])
+
+    encabezado("camion", "Logística Integral MX", nivel=1)
     st.subheader(f"Operación, Combustible y Huella de Carbono ({user_role})")
     st.divider()
 
-    if opcion == "📊 Panel General":
+    if opcion == "Panel General":
         modulo_panel_general()
-    elif opcion == "📝 Captura de Formatos":
-        modulo_captura_formatos()
-    elif opcion == "🌿 CO₂ y Combustible":
+    elif opcion == "Captura de Formatos":
+        modulo_captura_formatos(username, user_role)
+    elif opcion == "CO₂ y Combustible":
         modulo_co2_y_costos()
-    elif opcion == "🚚 Rutas y Mejoras":
+    elif opcion == "Rutas y Mejoras":
         modulo_optimizacion_rutas()
-    elif opcion == "⚙️ Configuración":
-        modulo_configuracion()
+    elif opcion == "Configuración":
+        modulo_configuracion(username)

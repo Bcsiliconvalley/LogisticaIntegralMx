@@ -1,0 +1,21 @@
+# Secretos: NUNCA subir
+.streamlit/secrets.toml
+.env
+
+# Versión anterior con CSV y usuarios en JSON (ya no se usan)
+users_logistica.json
+registro_conductores.csv
+registro_rutas.csv
+registro_combustible.csv
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# Sistema / editor
+.DS_Store
+Thumbs.db
+.vscode/
+*.log
